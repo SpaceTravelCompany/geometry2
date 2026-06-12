@@ -1,0 +1,68 @@
+# ── Zig 빌드 산출물 ──────────────────────────────────────────────
+.zig-cache/
+zig-out/
+zig-cache/
+
+# 빌드된 실행 파일 / 라이브러리
+*.exe
+*.dll
+*.so
+*.dylib
+*.lib
+*.a
+*.pdb
+*.ilk
+*.exp
+*.idb
+*.obj
+*.o
+
+# ── IDE / 에디터 ─────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Zed
+.zed/
+
+# Obsidian
+.obsidian/
+
+# ── 사용자별 / 임시 파일 ────────────────────────────────────────
+*.log
+*.tmp
+*.bak
+
+# ── Windows / MSVC 부산물 ───────────────────────────────────────
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+Win32/
+ARM/
+ARM64/
+*.suo
+*.user
+*.userosscache
+*.userprefs
+*.sln.docstates
+
+# ── 환경 변수 / 자격증명 ─────────────────────────────────────────
+.env
+.env.local
+*.pem
+*.key
+
+# ── 생성된 C/C++ 부산물 (Vulkan/WGPU 등) ────────────────────────
+*.cxx/
+cmake-build-*/
+build-*/
+
+# ── 테스트 산출물 ───────────────────────────────────────────────
+*.png.tmp

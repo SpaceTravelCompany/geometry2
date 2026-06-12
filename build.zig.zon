@@ -1,0 +1,14 @@
+.{
+    .minimum_zig_version = "0.16.0",
+    .name = .geometry2,
+    .fingerprint = 0x5b4496633746c2c3,
+    .version = "0.1.0",
+    .description = "geometry2 — Odin linalg_ex 1:1 포팅 for Zig 0.16 (모듈명: linalg)",
+    .copyright = "",
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "README.md",
+    },
+}
