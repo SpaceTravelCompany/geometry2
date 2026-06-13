@@ -259,5 +259,327 @@ pub fn main() !void {
         try std.testing.expect(mirrored.y == 7);
     }
 
+    // sanity: path_template (CircleCubicInit / RectLineInit /
+    //                       RoundRectLineInit / EllipseCubicInit)
+    {
+        // RectLineInit
+        const r0 = linalg.rectInit(f32, 0.0, 10.0, 0.0, 10.0);
+        const rp = linalg.rectLineInit(f32, r0);
+        try std.testing.expect(rp.len == 4);
+        try std.testing.expect(rp[0].x == 0.0 and rp[0].y == 0.0);
+        try std.testing.expect(rp[2].x == 10.0 and rp[2].y == 10.0);
+
+        // CircleCubicInit
+        const cc = linalg.circleCubicInit(f32, Vec2f32{ .x = 0, .y = 0 }, 5.0);
+        try std.testing.expect(cc.pts.len == 12);
+        try std.testing.expect(cc.isCurves.len == 12);
+        try std.testing.expect(cc.pts[0].x == -5.0 and cc.pts[0].y == 0.0);
+        try std.testing.expect(cc.pts[6].x == 5.0 and cc.pts[6].y == 0.0);
+        try std.testing.expect(cc.isCurves[0] == false);
+        try std.testing.expect(cc.isCurves[1] == true);
+
+        // EllipseCubicInit
+        const ee = linalg.ellipseCubicInit(f32,
+            Vec2f32{ .x = 0, .y = 0 },
+            Vec2f32{ .x = 3, .y = 2 },
+        );
+        try std.testing.expect(ee.pts.len == 12);
+        try std.testing.expect(ee.isCurves.len == 12);
+        try std.testing.expect(ee.pts[0].x == -3.0 and ee.pts[0].y == 0.0);
+        try std.testing.expect(ee.pts[3].x == 0.0 and ee.pts[3].y == -2.0);
+
+        // RoundRectLineInit
+        const rr = linalg.roundRectLineInit(f32, r0, 1.0);
+        try std.testing.expect(rr.pts.len == 12);
+        try std.testing.expect(rr.isCurves.len == 12);
+        try std.testing.expect(rr.pts[0].x == 1.0 and rr.pts[0].y == 0.0);
+        try std.testing.expect(rr.isCurves[1] == true);
+    }
+
+    // sanity: polyTransformMatrix (compilation + behavior)
+    {
+        var pts_arr = [_]Vec2f32{
+            Vec2f32{ .x = 0, .y = 0 },
+            Vec2f32{ .x = 10, .y = 0 },
+            Vec2f32{ .x = 10, .y = 10 },
+        };
+        var curves_arr = [_]bool{ false, false, false };
+        var pts_slice = [_][]Vec2f32{&pts_arr};
+        var isCurves_slice = [_][]bool{&curves_arr};
+        var node = linalg.ShapeNode{
+            .pts = &pts_slice,
+            .isCurves = &isCurves_slice,
+            .color = @Vector(4, f32){ 0, 0, 0, 1.0 },
+            .strokeColor = @Vector(4, f32){ 0, 0, 0, 0 },
+            .thickness = 0,
+            .isClosed = true,
+            .clipRect = .{ .left = 0, .right = 0, .top = 0, .bottom = 0 },
+        };
+        var shapes = linalg.Shapes{ .nodes = (&node)[0..1], .clipRect = .{ .left = 0, .right = 0, .top = 0, .bottom = 0 } };
+
+        // identity matrix should leave points unchanged
+        const F = linalg.Mat4x4f32.identity();
+        linalg.polyTransformMatrix(&shapes, F);
+        try std.testing.expect(shapes.nodes[0].pts[0][0].x == 0.0);
+        try std.testing.expect(shapes.nodes[0].pts[0][0].y == 0.0);
+        try std.testing.expect(shapes.nodes[0].pts[0][1].x == 10.0);
+        try std.testing.expect(shapes.nodes[0].pts[0][1].y == 0.0);
+        try std.testing.expect(shapes.nodes[0].pts[0][2].x == 10.0);
+        try std.testing.expect(shapes.nodes[0].pts[0][2].y == 10.0);
+
+        // translation (5, 7, 0): (0, 0) → (5, 7), (10, 0) → (15, 7)
+        const T = linalg.Mat4x4f32.translate(.{ 5, 7, 0 });
+        linalg.polyTransformMatrix(&shapes, T);
+        try std.testing.expect(shapes.nodes[0].pts[0][0].x == 5.0);
+        try std.testing.expect(shapes.nodes[0].pts[0][0].y == 7.0);
+        try std.testing.expect(shapes.nodes[0].pts[0][1].x == 15.0);
+        try std.testing.expect(shapes.nodes[0].pts[0][1].y == 7.0);
+    }
+
+    // sanity: shapesComputePolygon (line + quadratic)
+    {
+        var pts_arr = [_]Vec2f32{
+            Vec2f32{ .x = 0, .y = 0 },
+            Vec2f32{ .x = 10, .y = 0 },
+            Vec2f32{ .x = 10, .y = 10 },
+        };
+        var curves_arr = [_]bool{ false, false, false };
+        var pts_slice = [_][]Vec2f32{&pts_arr};
+        var isCurves_slice = [_][]bool{&curves_arr};
+        var node = linalg.ShapeNode{
+            .pts = &pts_slice,
+            .isCurves = &isCurves_slice,
+            .color = @Vector(4, f32){ 0, 0, 0, 1.0 },
+            .strokeColor = @Vector(4, f32){ 0, 0, 0, 0 },
+            .thickness = 0,
+            .isClosed = true,
+            .clipRect = .{ .left = 0, .right = 0, .top = 0, .bottom = 0 },
+        };
+        const shapes = linalg.Shapes{ .nodes = (&node)[0..1], .clipRect = .{ .left = 0, .right = 0, .top = 0, .bottom = 0 } };
+
+        var gpa = std.heap.DebugAllocator(.{}).init;
+        defer _ = gpa.deinit();
+        const test_alloc = gpa.allocator();
+
+        // shapesComputePolygon uses the allocator for inner per-contour dynamic arrays.
+        // Wrap in an arena so we get a clean free for all temp allocations.
+        var arena = std.heap.ArenaAllocator.init(test_alloc);
+        defer arena.deinit();
+        const arena_alloc = arena.allocator();
+
+        const raw = try linalg.shapesComputePolygon(shapes, arena_alloc);
+        // raw.vertices / raw.indices are owned by the user and live outside the arena.
+        // We need a separate allocator for the final dupe. Use the test_alloc for those.
+        const user_raw = linalg.RawShape{
+            .vertices = try test_alloc.dupe(linalg.ShapeVertex2d, raw.vertices),
+            .indices = try test_alloc.dupe(u32, raw.indices),
+            .rect = raw.rect,
+        };
+        defer linalg.rawShapeFree(@constCast(&user_raw), test_alloc);
+
+        try std.testing.expect(user_raw.vertices.len > 0);
+        try std.testing.expect(user_raw.indices.len > 0);
+        try std.testing.expect(user_raw.rect.left <= user_raw.rect.right);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // 실 파싱 테스트 1: SVG initParse end-to-end
+    //   - Q (quadratic) → CUBIC 변환 후 좌표 보존 확인
+    //   - isCurves 보존 확인
+    //   - Y-flip (geom Y-up, svg Y-down) 확인
+    // ═══════════════════════════════════════════════════════════════════
+    {
+        const svg_text =
+            \\<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+            \\  <path d="M 10 10 Q 50 90 90 10 Q 50 50 10 10 Z" fill="black" />
+            \\</svg>
+        ;
+
+        var gpa = std.heap.DebugAllocator(.{}).init;
+        defer _ = gpa.deinit();
+        const test_alloc = gpa.allocator();
+
+        var parser = try linalg.svg.initParse(svg_text, test_alloc);
+        defer parser.deinit();
+
+        // SVG path "M 10 10 Q 50 90 90 10 Q 50 50 10 10 Z" 가
+        // plutovg에서 MOVE_TO(10,10) + CUBIC_TO(36.67,63.33,63.33,36.67,90,10)
+        // + CUBIC_TO(63.33,36.67,36.67,36.67,10,10) + CLOSE(10,10) 로 변환되며
+        // CLOSE 후 중복점 제거 + Y-flip 적용 후 6 pts, 6 isCurves가 나와야 함.
+        try std.testing.expect(parser.shapes.nodes.len == 1);
+        const node = parser.shapes.nodes[0];
+        try std.testing.expect(node.pts.len == 1);
+        const contour = node.pts[0];
+        try std.testing.expect(contour.len == 6);
+        try std.testing.expect(node.isCurves.len == 1);
+        const curves = node.isCurves[0];
+        try std.testing.expect(curves.len == 6);
+
+        // M 10 10 → Y-flip → (10, -10)
+        try std.testing.expect(@abs(contour[0].x - 10.0) < 1e-5);
+        try std.testing.expect(@abs(contour[0].y - -10.0) < 1e-5);
+        // CLOSE 후 중복점 제거된 마지막 점
+        try std.testing.expect(@abs(contour[5].x - 36.67) < 0.01);
+        try std.testing.expect(@abs(contour[5].y - -36.67) < 0.01);
+
+        // isCurves 패턴: [false, true, true, false, true, true]
+        try std.testing.expect(curves[0] == false); // M (anchor)
+        try std.testing.expect(curves[1] == true);  // CUBIC ctrl1
+        try std.testing.expect(curves[2] == true);  // CUBIC ctrl2
+        try std.testing.expect(curves[3] == false); // CUBIC end (anchor)
+        try std.testing.expect(curves[4] == true);  // CUBIC ctrl1
+        try std.testing.expect(curves[5] == true);  // CUBIC ctrl2
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // 실 파싱 테스트 2: rasterizer end-to-end (SVG → shapes → pixels)
+    //   svg path를 파싱한 ShapeNode를 rasterizer에 직접 전달
+    //   - 수동 shape 대신 parser.shapes 사용
+    //   - 픽셀 버퍼 non-zero 확인
+    // ═══════════════════════════════════════════════════════════════════
+    {
+        const svg_text =
+            \\<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+            \\  <path d="M 10 10 L 90 10 L 90 90 L 10 90 Z" fill="black" />
+            \\</svg>
+        ;
+
+        var gpa = std.heap.DebugAllocator(.{}).init;
+        defer _ = gpa.deinit();
+        const test_alloc = gpa.allocator();
+
+        var parser = try linalg.svg.initParse(svg_text, test_alloc);
+        defer parser.deinit();
+
+        // SVG path "M 10 10 L 90 10 L 90 90 L 10 90 Z" → 4 anchor 사각형
+        try std.testing.expect(parser.shapes.nodes.len == 1);
+        const svg_node = parser.shapes.nodes[0];
+        try std.testing.expect(svg_node.pts.len == 1);
+        try std.testing.expect(svg_node.pts[0].len == 4); // 4 corners
+
+        // rasterizer는 const Shapes를 받음 — parser.shapes를 그대로 전달 가능
+        const pixels = try linalg.rasterizer.shapesToPixels(parser.shapes, 100, 100, test_alloc);
+        defer linalg.rasterizer.rasterizedPixelsFree(@constCast(&pixels));
+
+        try std.testing.expect(pixels.width == 100);
+        try std.testing.expect(pixels.height == 100);
+        try std.testing.expect(pixels.pixels.len > 0);
+
+        // 100x100 surface에서 사각형 영역에 black 픽셀이 그려져야 함
+        var has_nonzero = false;
+        for (pixels.pixels) |byte| {
+            if (byte != 0) {
+                has_nonzero = true;
+                break;
+            }
+        }
+        try std.testing.expect(has_nonzero);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // 실 파싱 테스트 3: geometry aggregator sanity
+    //   - shapesComputePolygon (rect pts → RawShape)
+    //   - getCubicCurveType (Line/Quadratic 확인)
+    //   - reverseShapeCloseCurve (간단한 입력/출력)
+    // ═══════════════════════════════════════════════════════════════════
+    {
+        var gpa = std.heap.DebugAllocator(.{}).init;
+        defer _ = gpa.deinit();
+        const test_alloc = gpa.allocator();
+
+        {
+            var arena = std.heap.ArenaAllocator.init(test_alloc);
+            defer arena.deinit();
+            const arena_alloc = arena.allocator();
+
+            // CCW 삼각형으로 shapesComputePolygon 검증 (line-only, reverse 회피)
+            var tpts = [_]Vec2f32{
+                Vec2f32{ .x = 0, .y = -100 },
+                Vec2f32{ .x = 100, .y = -100 },
+                Vec2f32{ .x = 100, .y = 0 },
+            };
+            var tcurves = [_]bool{ false, false, false };
+            var tpts_slice = [_][]Vec2f32{&tpts};
+            var tcurves_slice = [_][]bool{&tcurves};
+
+            var tnode = linalg.ShapeNode{
+                .pts = &tpts_slice,
+                .isCurves = &tcurves_slice,
+                .color = @Vector(4, f32){ 0, 0, 0, 1.0 },
+                .strokeColor = @Vector(4, f32){ 0, 0, 0, 0 },
+                .thickness = 0,
+                .isClosed = true,
+                .clipRect = .{ .left = 0, .right = 0, .top = 0, .bottom = 0 },
+            };
+            const tshapes = linalg.Shapes{
+                .nodes = (&tnode)[0..1],
+                .clipRect = .{ .left = 0, .right = 0, .top = 0, .bottom = 0 },
+            };
+            const raw = try linalg.shapesComputePolygon(tshapes, arena_alloc);
+            try std.testing.expect(raw.vertices.len > 0);
+            try std.testing.expect(raw.indices.len > 0);
+        }
+
+        // getCubicCurveType: Line (모든 점이 동일선상)
+        {
+            const result = try linalg.getCubicCurveType(
+                f32,
+                Vec2f32{ .x = 0, .y = 0 },
+                Vec2f32{ .x = 1, .y = 1 },
+                Vec2f32{ .x = 2, .y = 2 },
+                Vec2f32{ .x = 3, .y = 3 },
+            );
+            // collinear = degenerate → could be Line or Quadratic
+            std.debug.print("getCubicCurveType: type={s} d0={d} d1={d} d2={d}\n", .{
+                @tagName(result.curveType), result.d0, result.d1, result.d2,
+            });
+            try std.testing.expect(result.curveType == .Line or result.curveType == .Quadratic);
+        }
+
+        // getCubicCurveType: point 오류 검증
+        {
+            const p = Vec2f32{ .x = 0, .y = 0 };
+            const err = linalg.getCubicCurveType(f32, p, p, p, p);
+            try std.testing.expectError(error.IsPointNotLine, err);
+        }
+
+        // reverseShapeCloseCurve: 간단한 line-only polygon (4 anchor, 모두 비커브)
+        // all-anchor case → Consecutive_Anchor_Missing_Control 오류 (예상 동작)
+        {
+            const pts = [_]Vec2f32{
+                Vec2f32{ .x = 0, .y = 0 },
+                Vec2f32{ .x = 10, .y = 0 },
+                Vec2f32{ .x = 10, .y = 10 },
+                Vec2f32{ .x = 0, .y = 10 },
+            };
+            const curves = [_]bool{ false, false, false, false };
+            const err = linalg.reverseShapeCloseCurve(&pts, &curves, test_alloc);
+            // line-only polygon → reverse 실패 (예상: Consecutive_Anchor_Missing_Control)
+            try std.testing.expectError(error.Consecutive_Anchor_Missing_Control, err);
+        }
+
+        // reverseShapeCloseCurve: anchor-curve-anchor 패턴 → 정상 동작
+        //   anchor0(0,0) - ctl0 - anchor1(5,5) - ctl1 - ctl2 -[wrap]-> anchor0
+        //   5 points: [anchor0, ctl0, anchor1, ctl1, ctl2]
+        //   curves:   [false,   true,  false,   true,  true]
+        {
+            const pts = [_]Vec2f32{
+                Vec2f32{ .x = 0, .y = 0 },    // anchor 0
+                Vec2f32{ .x = 2, .y = 5 },    // curve control (anchor0→anchor1)
+                Vec2f32{ .x = 5, .y = 5 },    // anchor 1
+                Vec2f32{ .x = 5, .y = 7 },    // curve control (anchor1→wrap→anchor0)
+                Vec2f32{ .x = 10, .y = 8 },   // curve control (anchor1→wrap→anchor0)
+            };
+            const curves = [_]bool{ false, true, false, true, true };
+            const result = try linalg.reverseShapeCloseCurve(&pts, &curves, test_alloc);
+            defer test_alloc.free(result.pts);
+            defer test_alloc.free(result.isCurves);
+
+            try std.testing.expect(result.pts.len == pts.len);
+            try std.testing.expect(result.isCurves.len == curves.len);
+            try std.testing.expect(!result.isCurves[0]); // 첫 점은 항상 anchor
+        }
+    }
+
     std.debug.print("linalg sanity: OK\n", .{});
 }

@@ -52,7 +52,8 @@ pub fn linesIntersect2(
     const zero: T = 0;
     const den = (b2.y - b1.y) * (a2.x - a1.x) - (b2.x - b1.x) * (a2.y - a1.y);
     if (den == zero) {
-        return .{ .collinear, undefined };
+        // Odin 의 `return .collinear, {}` 와 동등: zero-init Vec2 반환.
+        return .{ .collinear, Vec2(T){ .x = 0, .y = 0 } };
     }
 
     const ua = (b2.x - b1.x) * (a1.y - b1.y) - (b2.y - b1.y) * (a1.x - b1.x);

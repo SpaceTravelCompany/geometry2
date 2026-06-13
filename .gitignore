@@ -2,6 +2,7 @@
 .zig-cache/
 zig-out/
 zig-cache/
+zig-pkg/
 
 # 빌드된 실행 파일 / 라이브러리
 *.exe

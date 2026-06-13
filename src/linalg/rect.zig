@@ -158,7 +158,8 @@ pub inline fn rectAnd(comptime T: type, _r1: Rect(T), _r2: Rect(T)) Rect(T) {
     var res: Rect(T) = undefined;
     res.left = if (_r1.left > _r2.left) _r1.left else _r2.left;
     res.right = if (_r1.right < _r2.right) _r1.right else _r2.right;
-    if (res.right < res.left) return undefined;
+    // Odin `return {}` 는 zero-initialized Rect 와 동등. Zig 도 동일하게 처리.
+    if (res.right < res.left) return Rect(T){ .left = 0, .right = 0, .top = 0, .bottom = 0 };
 
     const r1Top: T = if (_r1.top > _r1.bottom) _r1.top else _r1.bottom;
     const r1Bottom: T = if (_r1.top < _r1.bottom) _r1.top else _r1.bottom;

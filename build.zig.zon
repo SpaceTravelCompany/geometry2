@@ -10,5 +10,12 @@
         "build.zig.zon",
         "src",
         "README.md",
+        "deps",
+    },
+    .dependencies = .{
+        .xml = .{
+            .url = "https://github.com/ianprime0509/zig-xml/archive/b97f2ab4868ae3cac9902b33a40d3f31d2df739d.tar.gz",
+            .hash = "xml-0.2.0-ZTbP3yI6AgB9Rpd2hQrueO63ib0Bm6mQiL_WB1t7JAmP",
+        },
     },
 }
