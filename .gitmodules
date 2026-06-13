@@ -1,6 +1,0 @@
-[submodule "deps/libtess2"]
-	path = deps/libtess2
-	url = https://github.com/memononen/libtess2.git
-[submodule "deps/plutovg"]
-	path = deps/plutovg
-	url = https://github.com/sammycage/plutovg.git
