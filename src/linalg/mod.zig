@@ -128,34 +128,42 @@ pub const rectLineInit = path_template.rectLineInit;
 pub const roundRectLineInit = path_template.roundRectLineInit;
 pub const ellipseCubicInit = path_template.ellipseCubicInit;
 
-// ── triangulation ──────────────────────────────────────────────────────
-pub const triangulation = @import("triangulation.zig");
-pub const trianguatePolygons = triangulation.trianguatePolygons;
-pub const TrianguateError = triangulation.TrianguateError;
+ // ── triangulation ──────────────────────────────────────────────────────
+ pub const triangulation = @import("triangulation.zig");
+ pub const trianguatePolygons = triangulation.trianguatePolygons;
+ pub const TrianguateError = triangulation.TrianguateError;
 
-// ── geometry (SVG/rasterizer ShapeNode/Shapes) ─────────────────────────
-pub const geometry = @import("geometry.zig");
-pub const svg = @import("svg.zig");
-pub const rasterizer = @import("rasterizer.zig");
+ // ── geometry (SVG/rasterizer ShapeNode/Shapes) ─────────────────────────
+ pub const geometry = @import("geometry.zig");
+ pub const svg = @import("svg.zig");
+ pub const rasterizer = @import("rasterizer.zig");
+ pub const clipper = @import("clipper.zig");
 
-// ── geometry re-export ────────────────────────────────────────────────
-pub const ShapeNode = geometry.ShapeNode;
-pub const Shapes = geometry.Shapes;
-pub const ShapeError = geometry.ShapeError;
-pub const ShapeVertex2d = geometry.ShapeVertex2d;
-pub const ShapeVertexFlag = geometry.ShapeVertexFlag;
-pub const RawShape = geometry.RawShape;
-pub const CurveType = geometry.CurveType;
-pub const CurveStructFloat = geometry.CurveStructFloat;
-pub const isHoleContour = geometry.isHoleContour;
-pub const reverseShapeCloseCurve = geometry.reverseShapeCloseCurve;
-pub const rawShapeFree = geometry.rawShapeFree;
-pub const rawShapeComputeRect = geometry.rawShapeComputeRect;
-pub const rawShapeUpdateRect = geometry.rawShapeUpdateRect;
-pub const rawShapeClone = geometry.rawShapeClone;
-pub const getCubicCurveType = geometry.getCubicCurveType;
-pub const shapesComputePolygon = geometry.shapesComputePolygon;
-pub const polyTransformMatrix = geometry.polyTransformMatrix;
+ // ── geometry re-export ────────────────────────────────────────────────
+ pub const ShapeNode = geometry.ShapeNode;
+ pub const Shapes = geometry.Shapes;
+ pub const ShapeError = geometry.ShapeError;
+ pub const ShapeVertex2d = geometry.ShapeVertex2d;
+ pub const ShapeVertexFlag = geometry.ShapeVertexFlag;
+ pub const RawShape = geometry.RawShape;
+ pub const CurveType = geometry.CurveType;
+ pub const CurveStructFloat = geometry.CurveStructFloat;
+ pub const isHoleContour = geometry.isHoleContour;
+ pub const reverseShapeCloseCurve = geometry.reverseShapeCloseCurve;
+ pub const rawShapeFree = geometry.rawShapeFree;
+ pub const rawShapeComputeRect = geometry.rawShapeComputeRect;
+ pub const rawShapeUpdateRect = geometry.rawShapeUpdateRect;
+ pub const rawShapeClone = geometry.rawShapeClone;
+ pub const getCubicCurveType = geometry.getCubicCurveType;
+ pub const shapesComputePolygon = geometry.shapesComputePolygon;
+ pub const polyTransformMatrix = geometry.polyTransformMatrix;
+  pub const fitBezierToPolyline = geometry.fitBezierToPolyline;
+  pub const offsetShapeNode = geometry.offsetShapeNode;
+  pub const clipShapeNodeRect = geometry.clipShapeNodeRect;
+  pub const booleanShapeNodes = geometry.booleanShapeNodes;
+  pub const FlattenedSegment = geometry.FlattenedSegment;
+  pub const reconstructCubicFromTRange = geometry.reconstructCubicFromTRange;
+  pub const reconstructQuadraticFromTRange = geometry.reconstructQuadraticFromTRange;
 
 // ── svg re-export ─────────────────────────────────────────────────────
 pub const SvgParser = svg.SvgParser;
@@ -186,4 +194,5 @@ test {
     _ = geometry;
     _ = svg;
     _ = rasterizer;
+    _ = clipper;
 }

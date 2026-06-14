@@ -25,6 +25,7 @@ const triangle = @import("triangle.zig");
 const pointInTriangle = triangle.pointInTriangle;
 const triangulation = @import("triangulation.zig");
 const TrianguateError = triangulation.TrianguateError;
+const clipper = @import("clipper.zig");
 
 // ══════════════════════════════════════════════════════════════════════════════
 //  Types
@@ -59,12 +60,8 @@ pub const CurveType = enum(u8) {
     Quadratic,
 };
 
-/// clipper stub — future plan. 알고리즘 없음.
-pub const __ClipperError = error{
-    Failed,
-    TooSmall,
-    LengthMismatch,
-};
+/// clipper error set — clipper.ClipperError를 그대로 노출 (별칭).
+pub const __ClipperError = clipper.ClipperError;
 
 /// __ShapeError — geometry 자체 오류.
 pub const __ShapeError = error{
@@ -180,11 +177,11 @@ pub fn reverseShapeCloseCurve(
     if (isCurves[0]) return error.First_Point_Is_Curve;
 
     // anchor(비-커브) 인덱스 수집
-    var anchorIndices = std.array_list.AlignedManaged(u32, null).init(allocator);
-    defer anchorIndices.deinit();
+    var anchorIndices: std.array_list.Aligned(u32, null) = .empty;
+    defer anchorIndices.deinit(allocator);
     for (0..n) |i| {
         if (!isCurves[i]) {
-            try anchorIndices.append(@intCast(i));
+            try anchorIndices.append(allocator, @intCast(i));
         }
     }
 
@@ -291,14 +288,19 @@ pub fn CurveStructFloat(comptime F: type) type {
 // ══════════════════════════════════════════════════════════════════════════════
 
 /// Odin non_zero_resize_dynamic_array 대응. list의 길이를 n으로 설정한다 (zero-initialize 없음).
-fn resizeNonZero(comptime T: type, list: *std.array_list.AlignedManaged(T, null), n: usize) !void {
-    try list.ensureTotalCapacity(n);
+fn resizeNonZero(
+    comptime T: type,
+    list: *std.array_list.Aligned(T, null),
+    n: usize,
+    allocator: std.mem.Allocator,
+) !void {
+    try list.ensureTotalCapacity(allocator, n);
     list.items.len = n;
 }
 
 /// Odin non_zero_resize_fixed_capacity_dynamic_array 대응. 길이를 0으로 설정한다.
-fn clearRetaining(comptime T: type, list: *std.array_list.AlignedManaged(T, null)) void {
-    list.items.len = 0;
+fn clearRetaining(comptime T: type, list: *std.array_list.Aligned(T, null)) void {
+    list.clearRetainingCapacity();
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -439,10 +441,11 @@ fn reverseOrientation(F: [4][3]f32) [4][3]f32 {
 
 /// Odin geometry._ShapesComputeLine 1:1. cubic/quadratic 곡선을 삼각형 strip으로 분할.
 fn shapesComputeLine(
-    vertList: *std.array_list.AlignedManaged(ShapeVertex2d, null),
-    indList: *std.array_list.AlignedManaged(u32, null),
+    vertList: *std.array_list.Aligned(ShapeVertex2d, null),
+    indList: *std.array_list.Aligned(u32, null),
     color: Vec4f32,
     pts: *CurveStructFloat(f32),
+    allocator: std.mem.Allocator,
 ) ShapeError!void {
     var curveType = pts.type;
 
@@ -465,22 +468,22 @@ fn shapesComputeLine(
         const quadSign: f32 = if (getPolygonOrientation(f32, &quadTri) == .CounterClockwise) -1.0 else 1.0;
         if (quadSign < 0) pts.curveReverse = true;
 
-        try vertList.append(.{
+        try vertList.append(allocator, .{
             .uvw = .{ 0.0, 0.0, quadSign, @floatFromInt(@intFromEnum(ShapeVertexFlag.QUAD)) },
             .pos = .{ .x = pts.start.x, .y = pts.start.y },
             .color = color,
         });
-        try vertList.append(.{
+        try vertList.append(allocator, .{
             .uvw = .{ 0.5, 0.0, quadSign, @floatFromInt(@intFromEnum(ShapeVertexFlag.QUAD)) },
             .pos = .{ .x = pts.ctl0.x, .y = pts.ctl0.y },
             .color = color,
         });
-        try vertList.append(.{
+        try vertList.append(allocator, .{
             .uvw = .{ 1.0, 1.0, quadSign, @floatFromInt(@intFromEnum(ShapeVertexFlag.QUAD)) },
             .pos = .{ .x = pts.end.x, .y = pts.end.y },
             .color = color,
         });
-        try indList.appendSlice(&.{ vlen, vlen + 1, vlen + 2 });
+        try indList.appendSlice(allocator, &.{ vlen, vlen + 1, vlen + 2 });
         return;
     }
 
@@ -552,23 +555,24 @@ fn shapesComputeLine(
         F = reverseOrientation(F);
     }
 
-    try appendComputeLine(vertList, indList, color, pts.*, F);
+    try appendComputeLine(vertList, indList, color, pts.*, F, allocator);
 }
 
 /// shapesComputeLine의 appendLine 단계. 4개 정점과 삼각형 인덱스를 생성한다.
 fn appendComputeLine(
-    vertList: *std.array_list.AlignedManaged(ShapeVertex2d, null),
-    indList: *std.array_list.AlignedManaged(u32, null),
+    vertList: *std.array_list.Aligned(ShapeVertex2d, null),
+    indList: *std.array_list.Aligned(u32, null),
     color: Vec4f32,
     pts: CurveStructFloat(f32),
     F: [4][3]f32,
+    allocator: std.mem.Allocator,
 ) ShapeError!void {
     const start: u32 = @intCast(vertList.items.len);
 
-    try vertList.append(.{ .uvw = .{ F[0][0], F[0][1], F[0][2], @floatFromInt(@intFromEnum(ShapeVertexFlag.CUBIC)) }, .color = color, .pos = .{ .x = 0, .y = 0 } });
-    try vertList.append(.{ .uvw = .{ F[1][0], F[1][1], F[1][2], @floatFromInt(@intFromEnum(ShapeVertexFlag.CUBIC)) }, .color = color, .pos = .{ .x = 0, .y = 0 } });
-    try vertList.append(.{ .uvw = .{ F[2][0], F[2][1], F[2][2], @floatFromInt(@intFromEnum(ShapeVertexFlag.CUBIC)) }, .color = color, .pos = .{ .x = 0, .y = 0 } });
-    try vertList.append(.{ .uvw = .{ F[3][0], F[3][1], F[3][2], @floatFromInt(@intFromEnum(ShapeVertexFlag.CUBIC)) }, .color = color, .pos = .{ .x = 0, .y = 0 } });
+    try vertList.append(allocator, .{ .uvw = .{ F[0][0], F[0][1], F[0][2], @floatFromInt(@intFromEnum(ShapeVertexFlag.CUBIC)) }, .color = color, .pos = .{ .x = 0, .y = 0 } });
+    try vertList.append(allocator, .{ .uvw = .{ F[1][0], F[1][1], F[1][2], @floatFromInt(@intFromEnum(ShapeVertexFlag.CUBIC)) }, .color = color, .pos = .{ .x = 0, .y = 0 } });
+    try vertList.append(allocator, .{ .uvw = .{ F[2][0], F[2][1], F[2][2], @floatFromInt(@intFromEnum(ShapeVertexFlag.CUBIC)) }, .color = color, .pos = .{ .x = 0, .y = 0 } });
+    try vertList.append(allocator, .{ .uvw = .{ F[3][0], F[3][1], F[3][2], @floatFromInt(@intFromEnum(ShapeVertexFlag.CUBIC)) }, .color = color, .pos = .{ .x = 0, .y = 0 } });
 
     // Set positions
     vertList.items[start].pos = .{ .x = pts.start.x, .y = pts.start.y };
@@ -596,7 +600,7 @@ fn appendComputeLine(
                         idx += 1;
                     }
                 }
-                try indList.appendSlice(&.{ indices[0], indices[1], indices[2] });
+                try indList.appendSlice(allocator, &.{ indices[0], indices[1], indices[2] });
                 return;
             }
         }
@@ -617,9 +621,9 @@ fn appendComputeLine(
         const tri1 = vertList.items[indices[1]].pos;
         const tri2 = vertList.items[indices[2]].pos;
         if (pointInTriangle(f32, vts[ii], tri0, tri1, tri2)) {
-            try indList.appendSlice(&.{ indices[0], indices[1], indices[2] });
-            try indList.appendSlice(&.{ indices[1], indices[2], start + @as(u32, @intCast(ii)) });
-            try indList.appendSlice(&.{ indices[2], indices[0], start + @as(u32, @intCast(ii)) });
+            try indList.appendSlice(allocator, &.{ indices[0], indices[1], indices[2] });
+            try indList.appendSlice(allocator, &.{ indices[1], indices[2], start + @as(u32, @intCast(ii)) });
+            try indList.appendSlice(allocator, &.{ indices[2], indices[0], start + @as(u32, @intCast(ii)) });
             return;
         }
     }
@@ -628,25 +632,25 @@ fn appendComputeLine(
     const b = linesIntersect3(f32, vts[0], vts[2], vts[1], vts[3], false);
     if (b == .intersect) {
         if (vec2Length2(f32, vec2Sub(f32, vts[2], vts[0])) < vec2Length2(f32, vec2Sub(f32, vts[3], vts[1]))) {
-            try indList.appendSlice(&.{ start, start + 1, start + 2, start, start + 2, start + 3 });
+            try indList.appendSlice(allocator, &.{ start, start + 1, start + 2, start, start + 2, start + 3 });
         } else {
-            try indList.appendSlice(&.{ start, start + 1, start + 3, start + 1, start + 2, start + 3 });
+            try indList.appendSlice(allocator, &.{ start, start + 1, start + 3, start, start + 2, start + 3 });
         }
         return;
     }
     const b2 = linesIntersect3(f32, vts[0], vts[3], vts[1], vts[2], false);
     if (b2 == .intersect) {
         if (vec2Length2(f32, vec2Sub(f32, vts[3], vts[0])) < vec2Length2(f32, vec2Sub(f32, vts[2], vts[1]))) {
-            try indList.appendSlice(&.{ start, start + 1, start + 3, start, start + 3, start + 2 });
+            try indList.appendSlice(allocator, &.{ start, start + 1, start + 3, start, start + 3, start + 2 });
         } else {
-            try indList.appendSlice(&.{ start, start + 1, start + 2, start + 2, start + 1, start + 3 });
+            try indList.appendSlice(allocator, &.{ start, start + 1, start + 2, start, start + 2, start + 3 });
         }
         return;
     }
     if (vec2Length2(f32, vec2Sub(f32, vts[1], vts[0])) < vec2Length2(f32, vec2Sub(f32, vts[3], vts[2]))) {
-        try indList.appendSlice(&.{ start, start + 2, start + 1, start, start + 1, start + 3 });
+        try indList.appendSlice(allocator, &.{ start, start + 2, start + 1, start, start + 1, start + 3 });
     } else {
-        try indList.appendSlice(&.{ start, start + 2, start + 3, start + 3, start + 2, start + 1 });
+        try indList.appendSlice(allocator, &.{ start, start + 2, start + 3, start, start + 3, start + 1 });
     }
 }
 
@@ -656,11 +660,12 @@ fn appendComputeLine(
 
 /// 곡선 src를 t에서 분할하고, 분할 결과를 curvesN[insertIdx]에 주입한다.
 fn subdivCurveAndInjectAt(
-    curvesN: *std.array_list.AlignedManaged(CurveStructFloat(f32), null),
+    curvesN: *std.array_list.Aligned(CurveStructFloat(f32), null),
     insertIdx: usize,
     cur: *CurveStructFloat(f32),
     src: CurveStructFloat(f32),
     t: f32,
+    allocator: std.mem.Allocator,
 ) ShapeError!struct { mid: Vec2f32, c0: Vec2f32, c1: Vec2f32 } {
     if (src.type == .Quadratic) {
         const p0_p1_p2 = subdivQuadraticBezier(f32, .{ src.start, src.ctl0, src.end }, t);
@@ -668,7 +673,7 @@ fn subdivCurveAndInjectAt(
         cur.end = p0_p1_p2[1];
         const mid = p0_p1_p2[1];
         const c0 = p0_p1_p2[2];
-        try curvesN.insert(insertIdx, .{
+        try curvesN.insert(allocator, insertIdx, .{
             .start = p0_p1_p2[1],
             .ctl0 = p0_p1_p2[2],
             .ctl1 = Vec2f32{ .x = 0, .y = 0 },
@@ -685,7 +690,7 @@ fn subdivCurveAndInjectAt(
         const mid = p0_p1_p2_p3_p4[2];
         const c0 = p0_p1_p2_p3_p4[3];
         const c1 = p0_p1_p2_p3_p4[4];
-        try curvesN.insert(insertIdx, .{
+        try curvesN.insert(allocator, insertIdx, .{
             .start = p0_p1_p2_p3_p4[2],
             .ctl0 = p0_p1_p2_p3_p4[3],
             .ctl1 = p0_p1_p2_p3_p4[4],
@@ -798,10 +803,11 @@ fn subdivCurveSegmentsAtHalf(srcs: []const CurveStructFloat(f32), dst: []CurveSt
 
 /// curvesN[atIdx]를 segs로 대체하고, 추가 segs를 atIdx 이후에 삽입한다.
 fn injectSubdivCurveSegments(
-    curvesN: *std.array_list.AlignedManaged(CurveStructFloat(f32), null),
-    splitFlagsN: *std.array_list.AlignedManaged(bool, null),
+    curvesN: *std.array_list.Aligned(CurveStructFloat(f32), null),
+    splitFlagsN: *std.array_list.Aligned(bool, null),
     atIdx: usize,
     segs: []const CurveStructFloat(f32),
+    allocator: std.mem.Allocator,
 ) ShapeError!usize {
     if (segs.len == 0) return 0;
 
@@ -809,10 +815,10 @@ fn injectSubdivCurveSegments(
     splitFlagsN.items[atIdx] = true;
     var added: usize = 0;
     if (segs.len > 1) {
-        try curvesN.insertSlice(atIdx + 1, segs[1..]);
+        try curvesN.insertSlice(allocator, atIdx + 1, segs[1..]);
         var k: usize = 1;
         while (k < segs.len) : (k += 1) {
-            try splitFlagsN.insert(atIdx + k, true);
+            try splitFlagsN.insert(allocator, atIdx + k, true);
         }
         added = segs.len - 1;
     }
@@ -825,13 +831,14 @@ fn injectSubdivCurveSegments(
 
 /// curvesA[i]와 curvesB[j] 사이의 겹침을 처리하고 분할을 수행한다.
 fn processCurveOverlapPair(
-    curvesA: *std.array_list.AlignedManaged(CurveStructFloat(f32), null),
-    splitFlagsA: *std.array_list.AlignedManaged(bool, null),
+    curvesA: *std.array_list.Aligned(CurveStructFloat(f32), null),
+    splitFlagsA: *std.array_list.Aligned(bool, null),
     i: usize,
-    curvesB: *std.array_list.AlignedManaged(CurveStructFloat(f32), null),
-    splitFlagsB: *std.array_list.AlignedManaged(bool, null),
+    curvesB: *std.array_list.Aligned(CurveStructFloat(f32), null),
+    splitFlagsB: *std.array_list.Aligned(bool, null),
     j: usize,
     sameContour: bool,
+    allocator: std.mem.Allocator,
 ) ShapeError!struct { curAdded: usize, srcAdded: usize, overlapped: bool } {
     const src = curvesB.items[j];
     const cur = curvesA.items[i];
@@ -859,7 +866,7 @@ fn processCurveOverlapPair(
                     curSegs = curSegs8[0..];
                 }
             }
-            const curAdded = try injectSubdivCurveSegments(curvesA, splitFlagsA, i, curSegs);
+            const curAdded = try injectSubdivCurveSegments(curvesA, splitFlagsA, i, curSegs, allocator);
             return .{ .curAdded = curAdded, .srcAdded = 0, .overlapped = true };
         } else {
             const srcHalf0_1 = subdivCurveAt(src, 0.5);
@@ -879,9 +886,9 @@ fn processCurveOverlapPair(
             }
 
             const srcAdded = if (sameContour)
-                try injectSubdivCurveSegments(curvesA, splitFlagsA, j, srcSegs)
+                try injectSubdivCurveSegments(curvesA, splitFlagsA, j, srcSegs, allocator)
             else
-                try injectSubdivCurveSegments(curvesB, splitFlagsB, j, srcSegs);
+                try injectSubdivCurveSegments(curvesB, splitFlagsB, j, srcSegs, allocator);
             return .{ .curAdded = 0, .srcAdded = srcAdded, .overlapped = true };
         }
     }
@@ -929,21 +936,21 @@ fn processCurveOverlapPair(
     if (sameContour) {
         if (srcSegs.len > 1 and curSegs.len > 1) {
             if (j > i) {
-                srcAdded = try injectSubdivCurveSegments(curvesA, splitFlagsA, j, srcSegs);
-                curAdded = try injectSubdivCurveSegments(curvesA, splitFlagsA, i, curSegs);
+                srcAdded = try injectSubdivCurveSegments(curvesA, splitFlagsA, j, srcSegs, allocator);
+                curAdded = try injectSubdivCurveSegments(curvesA, splitFlagsA, i, curSegs, allocator);
             } else {
-                curAdded = try injectSubdivCurveSegments(curvesA, splitFlagsA, i, curSegs);
-                srcAdded = try injectSubdivCurveSegments(curvesA, splitFlagsA, j, srcSegs);
+                curAdded = try injectSubdivCurveSegments(curvesA, splitFlagsA, i, curSegs, allocator);
+                srcAdded = try injectSubdivCurveSegments(curvesA, splitFlagsA, j, srcSegs, allocator);
             }
         } else if (srcSegs.len > 1) {
-            srcAdded = try injectSubdivCurveSegments(curvesA, splitFlagsA, j, srcSegs);
+            srcAdded = try injectSubdivCurveSegments(curvesA, splitFlagsA, j, srcSegs, allocator);
         } else if (curSegs.len > 1) {
-            curAdded = try injectSubdivCurveSegments(curvesA, splitFlagsA, i, curSegs);
+            curAdded = try injectSubdivCurveSegments(curvesA, splitFlagsA, i, curSegs, allocator);
         }
     } else {
-        srcAdded = try injectSubdivCurveSegments(curvesB, splitFlagsB, j, srcSegs);
+        srcAdded = try injectSubdivCurveSegments(curvesB, splitFlagsB, j, srcSegs, allocator);
         if (curSegs.len > 1) {
-            curAdded = try injectSubdivCurveSegments(curvesA, splitFlagsA, i, curSegs);
+            curAdded = try injectSubdivCurveSegments(curvesA, splitFlagsA, i, curSegs, allocator);
         }
     }
 
@@ -960,10 +967,45 @@ pub fn shapesComputePolygon(
     poly: Shapes,
     allocator: std.mem.Allocator,
 ) ShapeError!RawShape {
-    var vertList = std.array_list.AlignedManaged(ShapeVertex2d, null).init(allocator);
-    var indList = std.array_list.AlignedManaged(u32, null).init(allocator);
+    var vertList: std.array_list.Aligned(ShapeVertex2d, null) = .empty;
+    var indList: std.array_list.Aligned(u32, null) = .empty;
 
-    try shapesComputePolygonIn(&vertList, &indList, poly, allocator);
+    // ── clipper 전처리: clipRect + 외곽선(stroke) ──
+    var procNodes: std.array_list.Aligned(ShapeNode, null) = .empty;
+    defer procNodes.deinit(allocator);
+
+    for (poly.nodes) |node| {
+        if (node.color[3] <= 0) continue;
+
+        // 1. clipRect 클리핑
+        const clipValid = node.clipRect.left != node.clipRect.right and
+            node.clipRect.top != node.clipRect.bottom;
+        var clipped = node;
+        if (clipValid) {
+            const clippedResult = clipShapeNodeRect(&node, node.clipRect, allocator) catch {
+                try procNodes.append(allocator, node);
+                continue;
+            };
+            clipped = clippedResult;
+        }
+
+        // 2. 외곽선(stroke) — thickness>0이고 strokeColor 불투명이면 별도 노드로 추가
+        if (node.thickness > 0 and node.strokeColor[3] > 0) {
+            if (offsetShapeNode(&node, @floatCast(node.thickness), .Round, .Polygon, allocator)) |*outline| {
+                var s = outline.*;
+                s.color = node.strokeColor;
+                s.strokeColor = .{ 0, 0, 0, 0 };
+                s.thickness = 0;
+                try procNodes.append(allocator, s);
+            } else |_| {}
+        }
+
+        // 3. 원본(채움) 노드 추가
+        try procNodes.append(allocator, clipped);
+    }
+
+    const procPoly = Shapes{ .nodes = try procNodes.toOwnedSlice(allocator), .clipRect = poly.clipRect };
+    try shapesComputePolygonIn(&vertList, &indList, procPoly, allocator);
 
     const res = RawShape{
         .vertices = try allocator.dupe(ShapeVertex2d, vertList.items),
@@ -980,17 +1022,17 @@ pub fn shapesComputePolygon(
 
 /// Odin shapesComputePolygon의 내부 proc에 대응.
 fn shapesComputePolygonIn(
-    vertList: *std.array_list.AlignedManaged(ShapeVertex2d, null),
-    indList: *std.array_list.AlignedManaged(u32, null),
+    vertList: *std.array_list.Aligned(ShapeVertex2d, null),
+    indList: *std.array_list.Aligned(u32, null),
     poly: Shapes,
     allocator: std.mem.Allocator,
 ) ShapeError!void {
     const ta = allocator; // temp allocator (Odin context.temp_allocator)
 
-    var nonCurves = std.array_list.AlignedManaged([]const Vec2f32, null).init(ta);
-    var nonCurves2 = std.array_list.AlignedManaged(std.array_list.AlignedManaged(Vec2f32, null), null).init(ta);
-    var curves2 = std.array_list.AlignedManaged(std.array_list.AlignedManaged(CurveStructFloat(f32), null), null).init(ta);
-    var overlapSkip2 = std.array_list.AlignedManaged(std.array_list.AlignedManaged(bool, null), null).init(ta);
+    var nonCurves: std.array_list.Aligned([]const Vec2f32, null) = .empty;
+    var nonCurves2: std.array_list.Aligned(std.array_list.Aligned(Vec2f32, null), null) = .empty;
+    var curves2: std.array_list.Aligned(std.array_list.Aligned(CurveStructFloat(f32), null), null) = .empty;
+    var overlapSkip2: std.array_list.Aligned(std.array_list.Aligned(bool, null), null) = .empty;
 
     for (poly.nodes, 0..) |node, nidx| {
         _ = nidx;
@@ -999,15 +1041,15 @@ fn shapesComputePolygonIn(
             // 현재는 clipRect를 무시하고 모든 contour 처리
 
             // resize per-contour arrays
-            try resizeNonZero(std.array_list.AlignedManaged(Vec2f32, null), &nonCurves2, node.pts.len);
-            try resizeNonZero(std.array_list.AlignedManaged(CurveStructFloat(f32), null), &curves2, node.pts.len);
-            try resizeNonZero(std.array_list.AlignedManaged(bool, null), &overlapSkip2, node.pts.len);
+            try resizeNonZero(std.array_list.Aligned(Vec2f32, null), &nonCurves2, node.pts.len, ta);
+            try resizeNonZero(std.array_list.Aligned(CurveStructFloat(f32), null), &curves2, node.pts.len, ta);
+            try resizeNonZero(std.array_list.Aligned(bool, null), &overlapSkip2, node.pts.len, ta);
 
             for (0..node.pts.len) |npi| {
                 // 각 ArrayList 요소를 명시적으로 초기화 (raw 메모리는 uninitialized 상태).
-                nonCurves2.items[npi] = std.array_list.AlignedManaged(Vec2f32, null).init(ta);
-                curves2.items[npi] = std.array_list.AlignedManaged(CurveStructFloat(f32), null).init(ta);
-                overlapSkip2.items[npi] = std.array_list.AlignedManaged(bool, null).init(ta);
+                nonCurves2.items[npi] = .empty;
+                curves2.items[npi] = .empty;
+                overlapSkip2.items[npi] = .empty;
             }
 
             for (node.pts, 0..) |np, npi| {
@@ -1031,7 +1073,7 @@ fn shapesComputePolygonIn(
                             const next3 = if (node.isClosed) (next2 + 1) % np.len else next2 + 1;
                             if (next3 >= np.len) break;
 
-                            try curves2.items[npi].append(.{
+                            try curves2.items[npi].append(ta, .{
                                 .start = np[ii],
                                 .ctl0 = np[next],
                                 .ctl1 = np[next2],
@@ -1041,7 +1083,7 @@ fn shapesComputePolygonIn(
                             });
                             ii = next3;
                         } else {
-                            try curves2.items[npi].append(.{
+                            try curves2.items[npi].append(ta, .{
                                 .start = np[ii],
                                 .ctl0 = np[next],
                                 .ctl1 = Vec2f32{ .x = 0, .y = 0 },
@@ -1052,7 +1094,7 @@ fn shapesComputePolygonIn(
                             ii = next2;
                         }
                     } else {
-                        try curves2.items[npi].append(.{
+                        try curves2.items[npi].append(ta, .{
                             .start = np[ii],
                             .end = np[next],
                             .type = .Line,
@@ -1095,6 +1137,7 @@ fn shapesComputePolygonIn(
                                 &curves2.items[npi].items[i],
                                 c,
                                 subdivAt,
+                                ta,
                             );
                             _ = result2;
                             i += 1;
@@ -1105,7 +1148,7 @@ fn shapesComputePolygonIn(
 
             // Initialize overlapSkip (false by default)
             for (0..curves2.items.len) |npi| {
-                try resizeNonZero(bool, &overlapSkip2.items[npi], curves2.items[npi].items.len);
+                try resizeNonZero(bool, &overlapSkip2.items[npi], curves2.items[npi].items.len, ta);
             }
 
             // Overlap check — scan all contour pairs
@@ -1137,6 +1180,7 @@ fn shapesComputePolygonIn(
                                 curvesA, skipA, ii,
                                 curvesB, skipB, jj,
                                 sameContour,
+                                ta,
                             );
                             if (!overlapResult.overlapped) continue;
 
@@ -1161,7 +1205,7 @@ fn shapesComputePolygonIn(
                 nonCurvesNpi.clearRetainingCapacity();
                 if (curvesNpi.len == 0) continue;
 
-                try nonCurvesNpi.append(curvesNpi[0].start);
+                try nonCurvesNpi.append(ta, curvesNpi[0].start);
                 for (curvesNpi, 0..) |c, ci| {
                     if (node.isClosed and ci == curvesNpi.len - 1 and
                         @abs(c.end.x - curvesNpi[0].start.x) <= std.math.floatEps(f32) and
@@ -1169,7 +1213,7 @@ fn shapesComputePolygonIn(
                     {
                         continue;
                     }
-                    try nonCurvesNpi.append(c.end);
+                    try nonCurvesNpi.append(ta, c.end);
                 }
             }
 
@@ -1177,7 +1221,7 @@ fn shapesComputePolygonIn(
             for (0..curves2.items.len) |ci| {
                 const cc = &curves2.items[ci];
                 for (0..cc.items.len) |cj| {
-                    try shapesComputeLine(vertList, indList, node.color, &cc.items[cj]);
+                    try shapesComputeLine(vertList, indList, node.color, &cc.items[cj], ta);
                 }
             }
 
@@ -1188,19 +1232,19 @@ fn shapesComputePolygonIn(
 
                 for (curvesNpi) |c| {
                     if (c.type != .Line) {
-                        var insertAr = std.array_list.AlignedManaged(Vec2f32, null).init(ta);
-                        defer insertAr.deinit();
+                        var insertAr: std.array_list.Aligned(Vec2f32, null) = .empty;
+                        defer insertAr.deinit(ta);
 
                         if (c.type != .Quadratic) {
                             if (pointLineLeftOrRight(f32, c.ctl0, c.start, c.end) > 0) {
-                                try insertAr.append(c.ctl0);
+                                try insertAr.append(ta, c.ctl0);
                             }
                             if (pointLineLeftOrRight(f32, c.ctl1, c.start, c.end) > 0) {
-                                try insertAr.append(c.ctl1);
+                                try insertAr.append(ta, c.ctl1);
                             }
                         } else {
                             if (pointLineLeftOrRight(f32, c.ctl0, c.start, c.end) > 0) {
-                                try insertAr.append(c.ctl0);
+                                try insertAr.append(ta, c.ctl0);
                             }
                         }
 
@@ -1220,14 +1264,14 @@ fn shapesComputePolygonIn(
                                 }
                             }
                             if (insertIdx < 0) continue;
-                            try nonCurvesNpi.insertSlice(@intCast(insertIdx), insertAr.items);
+                            try nonCurvesNpi.insertSlice(ta, @intCast(insertIdx), insertAr.items);
                         }
                     }
                 }
             }
 
             // Build flat nonCurves list
-            try resizeNonZero([]const Vec2f32, &nonCurves, nonCurves2.items.len);
+            try resizeNonZero([]const Vec2f32, &nonCurves, nonCurves2.items.len, ta);
             for (nonCurves2.items, 0..) |nc, npi| {
                 nonCurves.items[npi] = nc.items;
             }
@@ -1244,14 +1288,14 @@ fn shapesComputePolygonIn(
             // Append triangulated vertices
             for (nonCurves.items) |n| {
                 for (n) |nn| {
-                    try vertList.append(.{
+                    try vertList.append(ta, .{
                         .pos = nn,
                         .color = node.color,
                         .uvw = .{ 0, 0, 0, 0 },
                     });
                 }
             }
-            try indList.appendSlice(indices);
+            try indList.appendSlice(ta, indices);
         }
     }
 }
@@ -1271,4 +1315,182 @@ pub fn polyTransformMatrix(inoutPoly: *Shapes, F: linalg.Mat4x4f32) void {
             }
         }
     }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  Clipper 통합 — 곡선 재조립 + Offset + RectClip + Boolean (Stage 7)
+// ══════════════════════════════════════════════════════════════════════════════
+
+/// Curved segment metadata for t-parameter tracking during flattening
+pub const FlattenedSegment = struct { pt: linalg.Vec2f32, orig_curve_idx: usize, t_start: f32, t_end: f32, is_curve: bool };
+
+/// Exact De Casteljau extraction of cubic bezier [t_min, t_max]
+pub fn reconstructCubicFromTRange(orig: [4]linalg.Vec2f32, t_min: f32, t_max: f32) [4]linalg.Vec2f32 {
+    const r1 = lines.subdivCubicBezier(f32, orig, t_min);
+    const right: [4]linalg.Vec2f32 = .{ r1[2], r1[3], r1[4], orig[3] };
+    const tn = if (t_max >= 1.0) 1.0 else (t_max - t_min) / (1.0 - t_min);
+    const r2 = lines.subdivCubicBezier(f32, right, tn);
+    return .{ right[0], r2[0], r2[1], r2[2] };
+}
+
+/// Exact De Casteljau extraction of quadratic bezier [t_min, t_max]
+pub fn reconstructQuadraticFromTRange(orig: [3]linalg.Vec2f32, t_min: f32, t_max: f32) [3]linalg.Vec2f32 {
+    const r1 = lines.subdivQuadraticBezier(f32, orig, t_min);
+    const right: [3]linalg.Vec2f32 = .{ r1[1], r1[2], orig[2] };
+    const tn = if (t_max >= 1.0) 1.0 else (t_max - t_min) / (1.0 - t_min);
+    const r2 = lines.subdivQuadraticBezier(f32, right, tn);
+    return .{ right[0], r2[0], r2[1] };
+}
+
+// ── Polyline → Bezier curve fitting (Loop Blinn compatible) ──
+
+fn fitBezierToPolyline(poly: []const Vec2f32, isClosed: bool, allocator: std.mem.Allocator) std.mem.Allocator.Error!struct { pts: []Vec2f32, isCurves: []bool } {
+    if (poly.len <= 2) {
+        const p = try allocator.dupe(Vec2f32, poly);
+        const c = try allocator.alloc(bool, poly.len);
+        for (0..poly.len) |i| c[i] = false;
+        return .{ .pts = p, .isCurves = c };
+    }
+    var outP: std.array_list.Aligned(Vec2f32, null) = .empty;
+    var outC: std.array_list.Aligned(bool, null) = .empty;
+    defer {
+        outP.deinit(allocator);
+        outC.deinit(allocator);
+    }
+    var i: usize = 0;
+    while (i < poly.len) : (i += 1) {
+        const r = poly.len - i - 1;
+        _ = try outP.append(allocator, poly[i]); _ = try outC.append(allocator, false);
+        if (r >= 3) { _ = try outC.append(allocator, true); _ = try outP.append(allocator, poly[i + 1]); _ = try outC.append(allocator, true); _ = try outP.append(allocator, poly[i + 2]); _ = try outC.append(allocator, false); _ = try outP.append(allocator, poly[i + 3]); i += 3; }
+        else if (r >= 2) { _ = try outC.append(allocator, true); _ = try outP.append(allocator, poly[i + 1]); _ = try outC.append(allocator, false); _ = try outP.append(allocator, poly[i + 2]); i += 2; }
+        else if (r >= 1) { _ = try outC.append(allocator, false); _ = try outP.append(allocator, poly[i + 1]); i += 1; }
+        if (isClosed and i >= poly.len - 1) break;
+    }
+    if (isClosed and outP.items.len > 0 and outP.items[0].x == outP.items[outP.items.len - 1].x and outP.items[0].y == outP.items[outP.items.len - 1].y) { _ = outP.pop(); _ = outC.pop(); }
+    return .{ .pts = try outP.toOwnedSlice(allocator), .isCurves = try outC.toOwnedSlice(allocator) };
+}
+
+// ── Offset (inflate) ──
+
+pub fn offsetShapeNode(node: *const ShapeNode, delta: f32, jt: clipper.JoinType, et: clipper.EndType, allocator: std.mem.Allocator) (std.mem.Allocator.Error || ShapeError)!ShapeNode {
+    if (node.pts.len == 0) return error.Empty_Input;
+    var allP: std.array_list.Aligned([]clipper.Point, null) = .empty;
+    defer {
+        for (allP.items) |p| allocator.free(p);
+        allP.deinit(allocator);
+    }
+    for (node.pts) |c| {
+        if (c.len == 0) continue;
+        var cp = try allocator.alloc(clipper.Point, c.len);
+        for (c, 0..) |pt, j| cp[j] = .{ .x = @floatCast(pt.x), .y = @floatCast(pt.y) };
+        try allP.append(allocator, cp);
+    }
+    const inflated = clipper.inflatePaths(allP.items, @floatCast(delta), jt, et, 2.0, 0.0, true, allocator);
+    if (inflated.err != null) return mapClipperErr(inflated.err.?);
+
+    var newP: std.array_list.Aligned([]Vec2f32, null) = .empty;
+    var newC: std.array_list.Aligned([]bool, null) = .empty;
+    defer {
+        for (newP.items) |p| allocator.free(p);
+        for (newC.items) |c| allocator.free(c);
+        newP.deinit(allocator);
+        newC.deinit(allocator);
+    }
+    for (inflated.res) |poly| {
+        if (poly.len == 0) continue;
+        var vp = try allocator.alloc(Vec2f32, poly.len);
+        defer allocator.free(vp);
+        for (poly, 0..) |pt, j| vp[j] = .{ .x = @floatCast(pt.x), .y = @floatCast(pt.y) };
+        const fit = try fitBezierToPolyline(vp, node.isClosed, allocator);
+        try newP.append(allocator, fit.pts); try newC.append(allocator, fit.isCurves);
+    }
+    return ShapeNode{ .pts = try newP.toOwnedSlice(allocator), .isCurves = try newC.toOwnedSlice(allocator), .color = node.color, .strokeColor = node.strokeColor, .thickness = node.thickness, .isClosed = node.isClosed, .clipRect = node.clipRect };
+}
+
+// ── RectClip ──
+
+pub fn clipShapeNodeRect(node: *const ShapeNode, clipRect: Rectf32, allocator: std.mem.Allocator) (std.mem.Allocator.Error || ShapeError)!ShapeNode {
+    if (node.pts.len == 0) return error.Empty_Input;
+    var cp: std.array_list.Aligned([]clipper.Point, null) = .empty;
+    defer {
+        for (cp.items) |p| allocator.free(p);
+        cp.deinit(allocator);
+    }
+    for (node.pts) |c| {
+        if (c.len < 3) continue;
+        var pp = try allocator.alloc(clipper.Point, c.len);
+        for (c, 0..) |pt, j| pp[j] = .{ .x = @floatCast(pt.x), .y = @floatCast(pt.y) };
+        try cp.append(allocator, pp);
+    }
+    const r: clipper.RectF64 = .{ .left = @floatCast(clipRect.left), .top = @floatCast(clipRect.top), .right = @floatCast(clipRect.right), .bottom = @floatCast(clipRect.bottom) };
+    const rc = clipper.rectClip(r, cp.items, &.{}, allocator);
+    if (rc.err != null) return mapClipperErr(rc.err.?);
+
+    var newP: std.array_list.Aligned([]Vec2f32, null) = .empty;
+    var newC: std.array_list.Aligned([]bool, null) = .empty;
+    defer {
+        for (newP.items) |p| allocator.free(p);
+        for (newC.items) |c| allocator.free(c);
+        newP.deinit(allocator);
+        newC.deinit(allocator);
+    }
+    for (rc.closed) |poly| {
+        if (poly.len < 3) continue;
+        var vp = try allocator.alloc(Vec2f32, poly.len);
+        defer allocator.free(vp);
+        for (poly, 0..) |pt, j| vp[j] = .{ .x = @floatCast(pt.x), .y = @floatCast(pt.y) };
+        const fit = try fitBezierToPolyline(vp, node.isClosed, allocator);
+        try newP.append(allocator, fit.pts); try newC.append(allocator, fit.isCurves);
+    }
+    return ShapeNode{ .pts = try newP.toOwnedSlice(allocator), .isCurves = try newC.toOwnedSlice(allocator), .color = node.color, .strokeColor = node.strokeColor, .thickness = node.thickness, .isClosed = node.isClosed, .clipRect = clipRect };
+}
+
+// ── Boolean ──
+
+pub fn booleanShapeNodes(ct: clipper.ClipType, subj: *const ShapeNode, clip: *const ShapeNode, allocator: std.mem.Allocator) (std.mem.Allocator.Error || ShapeError)!ShapeNode {
+    if (subj.pts.len == 0) return error.Empty_Input;
+    // subject → clipper.Point
+    var sp: std.array_list.Aligned([]clipper.Point, null) = .empty;
+    defer {
+        for (sp.items) |p| allocator.free(p);
+        sp.deinit(allocator);
+    }
+    for (subj.pts) |c| { if (c.len < 3) continue; var pp = try allocator.alloc(clipper.Point, c.len); for (c, 0..) |pt, j| pp[j] = .{ .x = @floatCast(pt.x), .y = @floatCast(pt.y) }; try sp.append(allocator, pp); }
+    // clip → clipper.Point
+    var clp: std.array_list.Aligned([]clipper.Point, null) = .empty;
+    defer {
+        for (clp.items) |p| allocator.free(p);
+        clp.deinit(allocator);
+    }
+    for (clip.pts) |c| { if (c.len < 3) continue; var pp = try allocator.alloc(clipper.Point, c.len); for (c, 0..) |pt, j| pp[j] = .{ .x = @floatCast(pt.x), .y = @floatCast(pt.y) }; try clp.append(allocator, pp); }
+    const br = clipper.booleanOp(ct, sp.items, clp.items, &.{}, .NonZero, allocator);
+    if (br.err != null) return mapClipperErr(br.err.?);
+
+    var newP: std.array_list.Aligned([]Vec2f32, null) = .empty;
+    var newC: std.array_list.Aligned([]bool, null) = .empty;
+    defer {
+        for (newP.items) |p| allocator.free(p);
+        for (newC.items) |c| allocator.free(c);
+        newP.deinit(allocator);
+        newC.deinit(allocator);
+    }
+    for (br.res.items) |poly| {
+        if (poly.len < 3) continue;
+        var vp = try allocator.alloc(Vec2f32, poly.len);
+        defer allocator.free(vp);
+        for (poly, 0..) |pt, j| vp[j] = .{ .x = @floatCast(pt.x), .y = @floatCast(pt.y) };
+        const fit = try fitBezierToPolyline(vp, subj.isClosed, allocator);
+        try newP.append(allocator, fit.pts); try newC.append(allocator, fit.isCurves);
+    }
+    return ShapeNode{ .pts = try newP.toOwnedSlice(allocator), .isCurves = try newC.toOwnedSlice(allocator), .color = subj.color, .strokeColor = subj.strokeColor, .thickness = subj.thickness, .isClosed = subj.isClosed, .clipRect = subj.clipRect };
+}
+
+// ── Error mapping helper ──
+
+fn mapClipperErr(err: clipper.ClipperError) ShapeError {
+    if (err == error.Failed) return error.Failed;
+    if (err == error.TooSmall) return error.TooSmall;
+    if (err == error.LengthMismatch) return error.Length_Mismatch;
+    if (err == error.OutOfMemory) return error.OutOfMemory;
+    unreachable;
 }
