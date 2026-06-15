@@ -2,11 +2,12 @@ const std = @import("std");
 
 // ──── Error Set ─────────────────────────────────────────────────────────────
 /// Clipper-specific errors. `OutOfMemory` added for allocator failures.
-pub const ClipperError = error{
+pub const ClipperError = __ClipperError || std.mem.Allocator.Error;
+
+pub const __ClipperError = error{
     Failed,
     TooSmall,
     LengthMismatch,
-    OutOfMemory,
 };
 
 // ──── Public Enums ──────────────────────────────────────────────────────────
@@ -3731,7 +3732,6 @@ fn doRound(co: *ClipperOffset, path: []Point, j: usize, k: usize, angle: f64) vo
     co.path_out.appendAssumeCapacity(perp);
 }
 
-
 // ──── Group offset execution ──────────────────────────────────────────────────
 
 /// 그룹 오프셋 실행
@@ -3789,7 +3789,7 @@ fn doGroupOffset(co: *ClipperOffset, group: *Group, allocator: std.mem.Allocator
         }
 
         try buildNormals(co, path_in, allocator);
-        
+
         switch (co.end_type) {
             .Polygon => {
                 try offsetPolygon(co, path_in, allocator);
@@ -4103,7 +4103,7 @@ pub fn inflatePaths(
 // ──── Boolean Operations Public API ───────────────────────────────────────────
 
 pub const BooleanResult = struct {
-    res: [][]Point,      // 닫힌 경로
+    res: [][]Point, // 닫힌 경로
     res_open: [][]Point, // 열린 경로
     err: ?ClipperError,
 };
@@ -4250,7 +4250,7 @@ pub fn rectClip(
                     if (tmp.len > 0) {
                         open_list.append(allocator, tmp) catch {
                             allocator.free(tmp);
-            return RectClipResult{ .closed = &[_][]Point{}, .open = &[_][]Point{}, .err = error.OutOfMemory };
+                            return RectClipResult{ .closed = &[_][]Point{}, .open = &[_][]Point{}, .err = error.OutOfMemory };
                         };
                     }
                 }

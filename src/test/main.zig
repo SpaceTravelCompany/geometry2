@@ -230,7 +230,8 @@ pub fn main() !void {
 
     // sanity: crossProductSign
     {
-        const sign = linalg.crossProductSign(f32,
+        const sign = linalg.crossProductSign(
+            f32,
             Vec2f32{ .x = 0, .y = 0 },
             Vec2f32{ .x = 10, .y = 0 },
             Vec2f32{ .x = 0, .y = 10 },
@@ -240,7 +241,8 @@ pub fn main() !void {
 
     // sanity: inCircleTest
     {
-        const det = linalg.inCircleTest(f32,
+        const det = linalg.inCircleTest(
+            f32,
             Vec2f32{ .x = 0, .y = 0 },
             Vec2f32{ .x = 10, .y = 0 },
             Vec2f32{ .x = 0, .y = 10 },
@@ -251,7 +253,8 @@ pub fn main() !void {
 
     // sanity: xyMirrorPoint
     {
-        const mirrored = linalg.xyMirrorPoint(f32,
+        const mirrored = linalg.xyMirrorPoint(
+            f32,
             Vec2f32{ .x = 5, .y = 5 },
             Vec2f32{ .x = 3, .y = 3 },
         );
@@ -279,7 +282,8 @@ pub fn main() !void {
         try std.testing.expect(cc.isCurves[1] == true);
 
         // EllipseCubicInit
-        const ee = linalg.ellipseCubicInit(f32,
+        const ee = linalg.ellipseCubicInit(
+            f32,
             Vec2f32{ .x = 0, .y = 0 },
             Vec2f32{ .x = 3, .y = 2 },
         );
@@ -424,11 +428,11 @@ pub fn main() !void {
 
         // isCurves 패턴: [false, true, true, false, true, true]
         try std.testing.expect(curves[0] == false); // M (anchor)
-        try std.testing.expect(curves[1] == true);  // CUBIC ctrl1
-        try std.testing.expect(curves[2] == true);  // CUBIC ctrl2
+        try std.testing.expect(curves[1] == true); // CUBIC ctrl1
+        try std.testing.expect(curves[2] == true); // CUBIC ctrl2
         try std.testing.expect(curves[3] == false); // CUBIC end (anchor)
-        try std.testing.expect(curves[4] == true);  // CUBIC ctrl1
-        try std.testing.expect(curves[5] == true);  // CUBIC ctrl2
+        try std.testing.expect(curves[4] == true); // CUBIC ctrl1
+        try std.testing.expect(curves[5] == true); // CUBIC ctrl2
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -564,11 +568,11 @@ pub fn main() !void {
         //   curves:   [false,   true,  false,   true,  true]
         {
             const pts = [_]Vec2f32{
-                Vec2f32{ .x = 0, .y = 0 },    // anchor 0
-                Vec2f32{ .x = 2, .y = 5 },    // curve control (anchor0→anchor1)
-                Vec2f32{ .x = 5, .y = 5 },    // anchor 1
-                Vec2f32{ .x = 5, .y = 7 },    // curve control (anchor1→wrap→anchor0)
-                Vec2f32{ .x = 10, .y = 8 },   // curve control (anchor1→wrap→anchor0)
+                Vec2f32{ .x = 0, .y = 0 }, // anchor 0
+                Vec2f32{ .x = 2, .y = 5 }, // curve control (anchor0→anchor1)
+                Vec2f32{ .x = 5, .y = 5 }, // anchor 1
+                Vec2f32{ .x = 5, .y = 7 }, // curve control (anchor1→wrap→anchor0)
+                Vec2f32{ .x = 10, .y = 8 }, // curve control (anchor1→wrap→anchor0)
             };
             const curves = [_]bool{ false, true, false, true, true };
             const result = try linalg.reverseShapeCloseCurve(&pts, &curves, test_alloc);

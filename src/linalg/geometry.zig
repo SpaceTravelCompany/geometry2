@@ -24,7 +24,6 @@ const subdivCubicBezier = lines.subdivCubicBezier;
 const triangle = @import("triangle.zig");
 const pointInTriangle = triangle.pointInTriangle;
 const triangulation = @import("triangulation.zig");
-const TrianguateError = triangulation.TrianguateError;
 const clipper = @import("clipper.zig");
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -60,8 +59,9 @@ pub const CurveType = enum(u8) {
     Quadratic,
 };
 
-/// clipper error set — clipper.ClipperError를 그대로 노출 (별칭).
-pub const __ClipperError = clipper.ClipperError;
+const __ClipperError = clipper.__ClipperError;
+const __TrianguateError = triangulation.__TrianguateError;
+const TrianguateError = triangulation.TrianguateError;
 
 /// __ShapeError — geometry 자체 오류.
 pub const __ShapeError = error{
@@ -77,7 +77,7 @@ pub const __ShapeError = error{
 };
 
 /// ShapeError — 모든 하위 오류를 포함.
-pub const ShapeError = __ShapeError || TrianguateError || __ClipperError || std.mem.Allocator.Error;
+pub const ShapeError = __ShapeError || __TrianguateError || __ClipperError || std.mem.Allocator.Error;
 
 pub const ShapeNode = struct {
     pts: [][]Vec2f32,
@@ -1177,8 +1177,12 @@ fn shapesComputePolygonIn(
                             const origI = ii;
                             const origJ = jj;
                             const overlapResult = try processCurveOverlapPair(
-                                curvesA, skipA, ii,
-                                curvesB, skipB, jj,
+                                curvesA,
+                                skipA,
+                                ii,
+                                curvesB,
+                                skipB,
+                                jj,
                                 sameContour,
                                 ta,
                             );
@@ -1360,19 +1364,39 @@ fn fitBezierToPolyline(poly: []const Vec2f32, isClosed: bool, allocator: std.mem
     var i: usize = 0;
     while (i < poly.len) : (i += 1) {
         const r = poly.len - i - 1;
-        _ = try outP.append(allocator, poly[i]); _ = try outC.append(allocator, false);
-        if (r >= 3) { _ = try outC.append(allocator, true); _ = try outP.append(allocator, poly[i + 1]); _ = try outC.append(allocator, true); _ = try outP.append(allocator, poly[i + 2]); _ = try outC.append(allocator, false); _ = try outP.append(allocator, poly[i + 3]); i += 3; }
-        else if (r >= 2) { _ = try outC.append(allocator, true); _ = try outP.append(allocator, poly[i + 1]); _ = try outC.append(allocator, false); _ = try outP.append(allocator, poly[i + 2]); i += 2; }
-        else if (r >= 1) { _ = try outC.append(allocator, false); _ = try outP.append(allocator, poly[i + 1]); i += 1; }
+        _ = try outP.append(allocator, poly[i]);
+        _ = try outC.append(allocator, false);
+        if (r >= 3) {
+            _ = try outC.append(allocator, true);
+            _ = try outP.append(allocator, poly[i + 1]);
+            _ = try outC.append(allocator, true);
+            _ = try outP.append(allocator, poly[i + 2]);
+            _ = try outC.append(allocator, false);
+            _ = try outP.append(allocator, poly[i + 3]);
+            i += 3;
+        } else if (r >= 2) {
+            _ = try outC.append(allocator, true);
+            _ = try outP.append(allocator, poly[i + 1]);
+            _ = try outC.append(allocator, false);
+            _ = try outP.append(allocator, poly[i + 2]);
+            i += 2;
+        } else if (r >= 1) {
+            _ = try outC.append(allocator, false);
+            _ = try outP.append(allocator, poly[i + 1]);
+            i += 1;
+        }
         if (isClosed and i >= poly.len - 1) break;
     }
-    if (isClosed and outP.items.len > 0 and outP.items[0].x == outP.items[outP.items.len - 1].x and outP.items[0].y == outP.items[outP.items.len - 1].y) { _ = outP.pop(); _ = outC.pop(); }
+    if (isClosed and outP.items.len > 0 and outP.items[0].x == outP.items[outP.items.len - 1].x and outP.items[0].y == outP.items[outP.items.len - 1].y) {
+        _ = outP.pop();
+        _ = outC.pop();
+    }
     return .{ .pts = try outP.toOwnedSlice(allocator), .isCurves = try outC.toOwnedSlice(allocator) };
 }
 
 // ── Offset (inflate) ──
 
-pub fn offsetShapeNode(node: *const ShapeNode, delta: f32, jt: clipper.JoinType, et: clipper.EndType, allocator: std.mem.Allocator) (std.mem.Allocator.Error || ShapeError)!ShapeNode {
+pub fn offsetShapeNode(node: *const ShapeNode, delta: f32, jt: clipper.JoinType, et: clipper.EndType, allocator: std.mem.Allocator) ShapeError!ShapeNode {
     if (node.pts.len == 0) return error.Empty_Input;
     var allP: std.array_list.Aligned([]clipper.Point, null) = .empty;
     defer {
@@ -1402,14 +1426,15 @@ pub fn offsetShapeNode(node: *const ShapeNode, delta: f32, jt: clipper.JoinType,
         defer allocator.free(vp);
         for (poly, 0..) |pt, j| vp[j] = .{ .x = @floatCast(pt.x), .y = @floatCast(pt.y) };
         const fit = try fitBezierToPolyline(vp, node.isClosed, allocator);
-        try newP.append(allocator, fit.pts); try newC.append(allocator, fit.isCurves);
+        try newP.append(allocator, fit.pts);
+        try newC.append(allocator, fit.isCurves);
     }
     return ShapeNode{ .pts = try newP.toOwnedSlice(allocator), .isCurves = try newC.toOwnedSlice(allocator), .color = node.color, .strokeColor = node.strokeColor, .thickness = node.thickness, .isClosed = node.isClosed, .clipRect = node.clipRect };
 }
 
 // ── RectClip ──
 
-pub fn clipShapeNodeRect(node: *const ShapeNode, clipRect: Rectf32, allocator: std.mem.Allocator) (std.mem.Allocator.Error || ShapeError)!ShapeNode {
+pub fn clipShapeNodeRect(node: *const ShapeNode, clipRect: Rectf32, allocator: std.mem.Allocator) ShapeError!ShapeNode {
     if (node.pts.len == 0) return error.Empty_Input;
     var cp: std.array_list.Aligned([]clipper.Point, null) = .empty;
     defer {
@@ -1440,14 +1465,15 @@ pub fn clipShapeNodeRect(node: *const ShapeNode, clipRect: Rectf32, allocator: s
         defer allocator.free(vp);
         for (poly, 0..) |pt, j| vp[j] = .{ .x = @floatCast(pt.x), .y = @floatCast(pt.y) };
         const fit = try fitBezierToPolyline(vp, node.isClosed, allocator);
-        try newP.append(allocator, fit.pts); try newC.append(allocator, fit.isCurves);
+        try newP.append(allocator, fit.pts);
+        try newC.append(allocator, fit.isCurves);
     }
     return ShapeNode{ .pts = try newP.toOwnedSlice(allocator), .isCurves = try newC.toOwnedSlice(allocator), .color = node.color, .strokeColor = node.strokeColor, .thickness = node.thickness, .isClosed = node.isClosed, .clipRect = clipRect };
 }
 
 // ── Boolean ──
 
-pub fn booleanShapeNodes(ct: clipper.ClipType, subj: *const ShapeNode, clip: *const ShapeNode, allocator: std.mem.Allocator) (std.mem.Allocator.Error || ShapeError)!ShapeNode {
+pub fn booleanShapeNodes(ct: clipper.ClipType, subj: *const ShapeNode, clip: *const ShapeNode, allocator: std.mem.Allocator) ShapeError!ShapeNode {
     if (subj.pts.len == 0) return error.Empty_Input;
     // subject → clipper.Point
     var sp: std.array_list.Aligned([]clipper.Point, null) = .empty;
@@ -1455,14 +1481,24 @@ pub fn booleanShapeNodes(ct: clipper.ClipType, subj: *const ShapeNode, clip: *co
         for (sp.items) |p| allocator.free(p);
         sp.deinit(allocator);
     }
-    for (subj.pts) |c| { if (c.len < 3) continue; var pp = try allocator.alloc(clipper.Point, c.len); for (c, 0..) |pt, j| pp[j] = .{ .x = @floatCast(pt.x), .y = @floatCast(pt.y) }; try sp.append(allocator, pp); }
+    for (subj.pts) |c| {
+        if (c.len < 3) continue;
+        var pp = try allocator.alloc(clipper.Point, c.len);
+        for (c, 0..) |pt, j| pp[j] = .{ .x = @floatCast(pt.x), .y = @floatCast(pt.y) };
+        try sp.append(allocator, pp);
+    }
     // clip → clipper.Point
     var clp: std.array_list.Aligned([]clipper.Point, null) = .empty;
     defer {
         for (clp.items) |p| allocator.free(p);
         clp.deinit(allocator);
     }
-    for (clip.pts) |c| { if (c.len < 3) continue; var pp = try allocator.alloc(clipper.Point, c.len); for (c, 0..) |pt, j| pp[j] = .{ .x = @floatCast(pt.x), .y = @floatCast(pt.y) }; try clp.append(allocator, pp); }
+    for (clip.pts) |c| {
+        if (c.len < 3) continue;
+        var pp = try allocator.alloc(clipper.Point, c.len);
+        for (c, 0..) |pt, j| pp[j] = .{ .x = @floatCast(pt.x), .y = @floatCast(pt.y) };
+        try clp.append(allocator, pp);
+    }
     const br = clipper.booleanOp(ct, sp.items, clp.items, &.{}, .NonZero, allocator);
     if (br.err != null) return mapClipperErr(br.err.?);
 
@@ -1480,7 +1516,8 @@ pub fn booleanShapeNodes(ct: clipper.ClipType, subj: *const ShapeNode, clip: *co
         defer allocator.free(vp);
         for (poly, 0..) |pt, j| vp[j] = .{ .x = @floatCast(pt.x), .y = @floatCast(pt.y) };
         const fit = try fitBezierToPolyline(vp, subj.isClosed, allocator);
-        try newP.append(allocator, fit.pts); try newC.append(allocator, fit.isCurves);
+        try newP.append(allocator, fit.pts);
+        try newC.append(allocator, fit.isCurves);
     }
     return ShapeNode{ .pts = try newP.toOwnedSlice(allocator), .isCurves = try newC.toOwnedSlice(allocator), .color = subj.color, .strokeColor = subj.strokeColor, .thickness = subj.thickness, .isClosed = subj.isClosed, .clipRect = subj.clipRect };
 }
@@ -1488,9 +1525,10 @@ pub fn booleanShapeNodes(ct: clipper.ClipType, subj: *const ShapeNode, clip: *co
 // ── Error mapping helper ──
 
 fn mapClipperErr(err: clipper.ClipperError) ShapeError {
-    if (err == error.Failed) return error.Failed;
-    if (err == error.TooSmall) return error.TooSmall;
-    if (err == error.LengthMismatch) return error.Length_Mismatch;
-    if (err == error.OutOfMemory) return error.OutOfMemory;
-    unreachable;
+    return switch (err) {
+        error.Failed => error.Failed,
+        error.TooSmall => error.TooSmall,
+        error.LengthMismatch => error.Length_Mismatch,
+        error.OutOfMemory => error.OutOfMemory,
+    };
 }

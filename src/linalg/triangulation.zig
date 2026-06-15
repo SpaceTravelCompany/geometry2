@@ -90,10 +90,12 @@ extern "c" fn tessGetElementCount(tess: ?*Tessellator) c_int;
 /// Odin `TrianguateError :: union #shared_nil { __TrianguateError, runtime.Allocator_Error }` 1:1 대응.
 /// `__TrianguateError` = `error { FAILED, TOO_FEW_POINTS }`,
 /// `runtime.Allocator_Error` = `std.mem.Allocator.Error`.
-pub const TrianguateError = error{
+pub const TrianguateError = __TrianguateError || std.mem.Allocator.Error;
+
+pub const __TrianguateError = error{
     Failed,
     TooFewPoints,
-} || std.mem.Allocator.Error;
+};
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Convenience wrapper (Odin libtess2.odin `triangulate` 1:1)

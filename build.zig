@@ -1,7 +1,14 @@
 const std = @import("std");
+const builtin = @import("builtin");
+
+pub fn defaultTargetQuery() std.Target.Query {
+    return if (builtin.target.os.tag == .windows) .{
+        .abi = .msvc,
+    } else .{};
+}
 
 pub fn build(b: *std.Build) void {
-    const target = b.standardTargetOptions(.{});
+    const target = b.standardTargetOptions(.{ .default_target = defaultTargetQuery() });
     const optimize = b.standardOptimizeOption(.{});
 
     // ── linalg 모듈 ──────────────────────────────────────────────────────
