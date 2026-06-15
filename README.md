@@ -191,9 +191,9 @@ fn mapClipperErr(err: clipper.ClipperError) ShapeError {
 
 geometry2는 다음 라이브러리를 통합하며, 각각의 라이선스를 따른다:
 
-- **libtess2** — SGI FREE SOFTWARE LICENSE B Version 2.0 (`deps/libtess2/LICENSE.txt`)
-- **plutovg** — MIT (`deps/plutovg/LICENSE`)
-- **zig-xml (ianprime0509)** — MPL-2.0 (zig-xml 저장소 LICENSE 참조)
-- **Odin [geometry](https://github.com/SpaceTravelCompany/geometry)** — Boost Software License 1.0
+- **[libtess2](https://github.com/memononen/libtess2)** (memononen) — SGI FREE SOFTWARE LICENSE B Version 2.0 ([로컬](deps/libtess2/LICENSE.txt))
+- **[plutovg](https://github.com/sammycage/plutovg)** (sammycage) — MIT ([로컬](deps/plutovg/LICENSE))
+- **[zig-xml](https://github.com/ianprime0509/zig-xml)** (ianprime0509) — MPL-2.0 ([원본 LICENSE](https://github.com/ianprime0509/zig-xml/blob/main/LICENSE))
+- **[Odin geometry](https://github.com/SpaceTravelCompany/geometry)** (SpaceTravelCompany) — Boost Software License 1.0 ([원본 LICENSE](https://github.com/SpaceTravelCompany/geometry/blob/main/LICENSE))
 
 geometry2 자체는 Zig 포팅(+기능 추가)으로, 원본 라이선스를 따른다.
