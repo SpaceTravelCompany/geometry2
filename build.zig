@@ -122,18 +122,18 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(test_exe);
 
     const run_test = b.addRunArtifact(test_exe);
-    const run_test_step = b.step("run-test", "테스트 실행 파일 빌드 + 실행");
-    run_test_step.dependOn(&run_test.step);
 
     // ── 단위 테스트 ────────────────────────────────────────────────────
     const linalg_tests = b.addTest(.{
         .root_module = linalg_mod,
     });
     const run_linalg_tests = b.addRunArtifact(linalg_tests);
-    const test_step = b.step("test", "linalg 단위 테스트");
+    const test_step = b.step("test", "전체 테스트 (단위 테스트 + 실행 파일)");
     test_step.dependOn(&run_linalg_tests.step);
+    test_step.dependOn(&run_test.step);
 
     // ── check step ─────────────────────────────────────────────────────
-    const check_step = b.step("check", "전체 모듈 컴파일 체크");
+    const check_step = b.step("check", "전체 테스트 (test alias)");
     check_step.dependOn(&run_linalg_tests.step);
+    check_step.dependOn(&run_test.step);
 }

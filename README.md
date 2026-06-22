@@ -2,7 +2,7 @@
 
 Odin `Odin/shared/geometry`의 1:1 Zig 0.16 포팅. `linalg`, `triangulation`, `geometry`, `svg`, `rasterizer` 모듈을 노출하며, `linalg`는 18개 서브모듈을 re-export.
 
-**마지막 업데이트**: 2026-06-12 | **모듈 상태**: 17/17 단위 테스트 통과
+**마지막 업데이트**: 2026-06-23 | **모듈 상태**: 17/17 단위 테스트 통과
 
 ---
 
@@ -10,17 +10,26 @@ Odin `Odin/shared/geometry`의 1:1 Zig 0.16 포팅. `linalg`, `triangulation`, `
 
 ```bash
 zig build              # 컴파일 체크
-zig build test         # 17/17 단위 테스트
-zig build run-test     # "linalg sanity: OK" + main 함수 sanity (svg + rasterizer end-to-end)
+zig build test         # linalg 단위 테스트 + geometry2_test 실행 파일
 zig build check        # alias for zig build test
 ```
 
-`zig build test`는 linalg 모듈의 `test {}` 블록 17개를 실행한다. 내역:
-- linalg 기반 (rect, area, matrix 정확성)
-- path_template (circleCubicInit, rectLineInit, roundRectLineInit, ellipseCubicInit)
-- triangle (pointInTriangle)
-- geometry aggregator (shapesComputePolygon, getCubicCurveType x2, reverseShapeCloseCurve x2)
-- bezier_intersect (getBezierIntersectPt 등 6개)
+`zig build test`는 통합 테스트 명령이다. 두 가지를 차례로 실행한다:
+- `linalg` 모듈의 단위 테스트 (`src/linalg` 내 `test {}` 블록 17개). 파일별 내역:
+  - `bezier_intersect.zig` (6): 2quadCurves, lineLineIntersect, lineQuadIntersect, bezierExtremaT, bezierAABBQuad, pointInCurvedPolygonSquare
+  - `path_template.zig` (5): rectLineInit, circleCubicInit, ellipseCubicInit, roundRectLineInit (2)
+  - `triangulation.zig` (3): triangulationSquare, triangulationTwoSquares, triangulationTriangle
+  - `area.zig` (1): Area basic
+  - `triangle.zig` (1): PointInTriangle
+  - `mod.zig` (1): 모듈 참조 smoke test
+- `src/test/main.zig` 기반 `geometry2_test` 실행 파일. 주요 검증 영역:
+  - 기하 기본 연산 (rect, pointInTriangle, rectAnd, linesIntersect2, pointInPolygon, polygonSignedArea, crossProductSign, inCircleTest, xyMirrorPoint, bezier eval)
+  - 행렬 정확성 (srt2dMatrix, inverse, matrix2d shortcut 최적화 table-driven)
+  - path_template (circleCubicInit, rectLineInit, roundRectLineInit, ellipseCubicInit)
+  - polyTransformMatrix, shapesComputePolygon
+  - geometry aggregator (getCubicCurveType, reverseShapeCloseCurve)
+  - SVG 파싱 (Q→CUBIC 변환, isCurves 보존, Y-flip)
+  - Rasterizer end-to-end (SVG → shapes → pixels non-zero 확인)
 
 ---
 
